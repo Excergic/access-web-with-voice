@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Voice Action Browser</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      width: 400px;
+      padding: 12px;
+      background: #1e1e2e;
+      color: #cdd6f4;
+    }
+
+    h1 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: #cba6f7;
+      letter-spacing: 0.03em;
+    }
+
+    button {
+      width: 100%;
+      padding: 8px;
+      background: #cba6f7;
+      color: #1e1e2e;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 10px;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    #output {
+      min-height: 40px;
+      color: #a6e3a1;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    td {
+      padding: 4px 6px;
+      vertical-align: top;
+    }
+
+    td.label {
+      color: #89b4fa;
+      font-weight: 600;
+      width: 70px;
+      white-space: nowrap;
+    }
+
+    td.value {
+      color: #cdd6f4;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <h1>Voice Action Browser</h1>
+  <button id="read-btn">Read Current Email</button>
+  <div id="output">Open an email in Gmail, then click above.</div>
+  <script src="dist/popup.js"></script>
+</body>
+</html>
