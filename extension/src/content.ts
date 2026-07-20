@@ -348,6 +348,13 @@ async function startVoiceConfirmation(): Promise<void> {
     return;
   }
 
+  // Tell server to reset its voice_chunks buffer — discards any lingering binary
+  // from the previous command recording before we stream new audio.
+  if (ws?.readyState === WebSocket.OPEN) {
+    const start: WsOutbound = { type: "start_of_voice_confirmation" };
+    ws.send(JSON.stringify(start));
+  }
+
   mediaRecorder = new MediaRecorder(stream);
   mediaRecorder.ondataavailable = (e: BlobEvent) => {
     if (ws?.readyState === WebSocket.OPEN && e.data.size > 0) ws.send(e.data);
@@ -358,20 +365,29 @@ async function startVoiceConfirmation(): Promise<void> {
 }
 
 function stopVoiceConfirmation(): void {
-  if (!isVoiceConfirmationRecording) return;
+  if (!isVoiceConfirmationRecording || !mediaRecorder) return;
 
-  mediaRecorder?.stop();
-  stream?.getTracks().forEach(t => t.stop());
-  mediaRecorder = null;
-  stream = null;
   isVoiceConfirmationRecording = false;
   awaitingVoiceConfirmation = false;
+  setVoiceHint("Processing your response...", "#f9e2af");
 
-  if (ws?.readyState === WebSocket.OPEN) {
-    const outbound: WsOutbound = { type: "end_of_voice_confirmation" };
-    ws.send(JSON.stringify(outbound));
-    setVoiceHint("Processing your response...", "#f9e2af");
-  }
+  // Hold references before nulling so onstop callback can use them.
+  const mr = mediaRecorder;
+  const st = stream;
+  mediaRecorder = null;
+  stream = null;
+
+  // Send end signal AFTER onstop, which fires after the final ondataavailable.
+  // This guarantees the server receives all audio chunks before the signal.
+  mr.onstop = () => {
+    st?.getTracks().forEach(t => t.stop());
+    if (ws?.readyState === WebSocket.OPEN) {
+      const end: WsOutbound = { type: "end_of_voice_confirmation" };
+      ws.send(JSON.stringify(end));
+    }
+  };
+
+  mr.stop();
 }
 
 function cleanup(): void {

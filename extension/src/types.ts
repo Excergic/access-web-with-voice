@@ -38,6 +38,10 @@ export interface WsConfirmationResponse {
   confirmed: boolean;
 }
 
+export interface WsStartOfVoiceConfirmation {
+  type: "start_of_voice_confirmation";
+}
+
 export interface WsEndOfVoiceConfirmation {
   type: "end_of_voice_confirmation";
 }
@@ -46,6 +50,7 @@ export type WsOutbound =
   | WsContextMessage
   | WsEndOfAudioMessage
   | WsConfirmationResponse
+  | WsStartOfVoiceConfirmation
   | WsEndOfVoiceConfirmation;
 
 // ── WebSocket: server → extension ────────────────────────────────────────────

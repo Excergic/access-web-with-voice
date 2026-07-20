@@ -231,6 +231,12 @@ async def run_graph(
                     log.info("User confirmed=%s (button)", confirmed)
                     break
 
+                # ── Voice recording started — discard lingering previous chunks ─
+                if msg_type == "start_of_voice_confirmation":
+                    voice_chunks = []
+                    log.debug("Voice confirmation recording started — buffer cleared")
+                    continue
+
                 # ── Voice path ─────────────────────────────────────────────────
                 if msg_type == "end_of_voice_confirmation":
                     if not voice_chunks:
