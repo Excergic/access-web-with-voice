@@ -38,7 +38,15 @@ export interface WsConfirmationResponse {
   confirmed: boolean;
 }
 
-export type WsOutbound = WsContextMessage | WsEndOfAudioMessage | WsConfirmationResponse;
+export interface WsEndOfVoiceConfirmation {
+  type: "end_of_voice_confirmation";
+}
+
+export type WsOutbound =
+  | WsContextMessage
+  | WsEndOfAudioMessage
+  | WsConfirmationResponse
+  | WsEndOfVoiceConfirmation;
 
 // ── WebSocket: server → extension ────────────────────────────────────────────
 
@@ -72,6 +80,11 @@ export interface WsAgentResult {
   plan: unknown;
 }
 
+export interface WsTtsAudio {
+  type: "tts_audio";
+  audio_b64: string;
+}
+
 export interface WsError {
   type: "error";
   text: string;
@@ -82,5 +95,6 @@ export type WsInbound =
   | WsTranscript
   | WsAgentStatus
   | WsConfirmationRequired
+  | WsTtsAudio
   | WsAgentResult
   | WsError;

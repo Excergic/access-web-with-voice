@@ -8,6 +8,7 @@ import type {
   WsConfirmationRequired,
   WsInbound,
   WsOutbound,
+  WsTtsAudio,
 } from "./types";
 
 const WS_URL = "ws://localhost:8000/ws";
@@ -125,7 +126,7 @@ function showConfirmation(payload: WsConfirmationRequired): void {
     <div style="margin-bottom:10px;font-size:12px;color:#a6adc8">
       ${escHtml(payload.auto_composed ? "Send this reply?" : "Confirm and send?")}
     </div>
-    <div style="display:flex;gap:8px">
+    <div style="display:flex;gap:8px;margin-bottom:10px">
       <button id="vab-yes" style="
         flex:1;padding:6px;background:#a6e3a1;color:#1e1e2e;
         border:none;border-radius:6px;font-weight:600;cursor:pointer">
@@ -137,6 +138,10 @@ function showConfirmation(payload: WsConfirmationRequired): void {
         Cancel
       </button>
     </div>
+    <div id="vab-voice-hint" style="
+      font-size:11px;color:#a6adc8;
+      border-top:1px solid #313244;padding-top:8px;
+    ">🔊 Playing audio...</div>
   `;
 }
 
@@ -152,12 +157,37 @@ function escHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
+// ── TTS playback ──────────────────────────────────────────────────────────────
+
+async function playTtsAudio(audioB64: string): Promise<void> {
+  const binary = atob(audioB64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  const ctx = new AudioContext();
+  const buffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
+  await new Promise<void>((resolve) => {
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(ctx.destination);
+    src.onended = () => { void ctx.close(); resolve(); };
+    src.start();
+  });
+}
+
+function setVoiceHint(text: string, color = "#a6adc8"): void {
+  const hint = document.getElementById("vab-voice-hint");
+  if (hint) { hint.textContent = text; hint.style.color = color; }
+}
+
 // ── Session state ─────────────────────────────────────────────────────────────
 
 let ws: WebSocket | null = null;
 let mediaRecorder: MediaRecorder | null = null;
 let stream: MediaStream | null = null;
 let isRecording = false;
+let awaitingVoiceConfirmation = false;
+let isVoiceConfirmationRecording = false;
 
 // ── WebSocket message handler ─────────────────────────────────────────────────
 
@@ -180,18 +210,26 @@ function handleServerMessage(msg: WsInbound): void {
 
     case "confirmation_required":
       showConfirmation(msg);
-      // Wire up Yes/No buttons
-      document.getElementById("vab-yes")?.addEventListener("click", () => {
-        sendConfirmation(true);
-      });
-      document.getElementById("vab-no")?.addEventListener("click", () => {
-        sendConfirmation(false);
+      document.getElementById("vab-yes")?.addEventListener("click", () => sendConfirmation(true));
+      document.getElementById("vab-no")?.addEventListener("click",  () => sendConfirmation(false));
+      break;
+
+    case "tts_audio":
+      void playTtsAudio((msg as WsTtsAudio).audio_b64).then(() => {
+        // After TTS finishes: if still on confirmation screen, enable voice response
+        if (awaitingVoiceConfirmation || document.getElementById("vab-voice-hint")) {
+          awaitingVoiceConfirmation = true;
+          setVoiceHint("🎤 Press Alt+Space to say YES, NO, or describe changes");
+        }
       });
       break;
 
     case "agent_result":
-      showOverlay(`Done: ${msg.summary}`, "#a6e3a1");
-      setTimeout(hideOverlay, 5000);
+      // TTS of result is already sent by server; give it a moment then close overlay
+      setTimeout(() => {
+        showOverlay(`Done: ${msg.summary}`, "#a6e3a1");
+        setTimeout(hideOverlay, 5000);
+      }, 100);
       cleanup();
       break;
 
@@ -204,6 +242,16 @@ function handleServerMessage(msg: WsInbound): void {
 }
 
 function sendConfirmation(confirmed: boolean): void {
+  // Stop any in-progress voice confirmation recording
+  if (isVoiceConfirmationRecording) {
+    mediaRecorder?.stop();
+    stream?.getTracks().forEach(t => t.stop());
+    mediaRecorder = null;
+    stream = null;
+    isVoiceConfirmationRecording = false;
+  }
+  awaitingVoiceConfirmation = false;
+
   if (ws?.readyState !== WebSocket.OPEN) return;
   const msg: WsOutbound = { type: "confirmation_response", confirmed };
   ws.send(JSON.stringify(msg));
@@ -288,6 +336,44 @@ function stopSession(): void {
   isRecording = false;
 }
 
+// ── Voice confirmation recording ──────────────────────────────────────────────
+
+async function startVoiceConfirmation(): Promise<void> {
+  if (isVoiceConfirmationRecording) return;
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch {
+    setVoiceHint("Microphone access denied.", "#f38ba8");
+    return;
+  }
+
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (e: BlobEvent) => {
+    if (ws?.readyState === WebSocket.OPEN && e.data.size > 0) ws.send(e.data);
+  };
+  mediaRecorder.start(100);
+  isVoiceConfirmationRecording = true;
+  setVoiceHint("🔴 Listening... press Alt+Space when done", "#f38ba8");
+}
+
+function stopVoiceConfirmation(): void {
+  if (!isVoiceConfirmationRecording) return;
+
+  mediaRecorder?.stop();
+  stream?.getTracks().forEach(t => t.stop());
+  mediaRecorder = null;
+  stream = null;
+  isVoiceConfirmationRecording = false;
+  awaitingVoiceConfirmation = false;
+
+  if (ws?.readyState === WebSocket.OPEN) {
+    const outbound: WsOutbound = { type: "end_of_voice_confirmation" };
+    ws.send(JSON.stringify(outbound));
+    setVoiceHint("Processing your response...", "#f9e2af");
+  }
+}
+
 function cleanup(): void {
   mediaRecorder?.stop();
   stream?.getTracks().forEach(t => t.stop());
@@ -296,6 +382,8 @@ function cleanup(): void {
   mediaRecorder = null;
   stream = null;
   isRecording = false;
+  awaitingVoiceConfirmation = false;
+  isVoiceConfirmationRecording = false;
 }
 
 // ── Hotkey — Alt+Space toggle ────────────────────────────────────────────────
@@ -303,6 +391,18 @@ function cleanup(): void {
 document.addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.altKey === HOTKEY.altKey && e.code === HOTKEY.code) {
     e.preventDefault();
+
+    // Voice confirmation mode takes priority over normal recording
+    if (awaitingVoiceConfirmation || isVoiceConfirmationRecording) {
+      if (isVoiceConfirmationRecording) {
+        stopVoiceConfirmation();
+      } else {
+        void startVoiceConfirmation();
+      }
+      return;
+    }
+
+    // Normal command recording
     if (isRecording) {
       stopSession();
     } else {

@@ -165,6 +165,14 @@ async def draft_reply(subject: str, body: str) -> dict:
     return await asyncio.get_event_loop().run_in_executor(None, _run)
 
 
+async def delete_draft(draft_id: str) -> None:
+    """Delete a Gmail draft by ID. Non-critical — errors are logged but not raised."""
+    def _run() -> None:
+        _get_service().users().drafts().delete(userId="me", id=draft_id).execute()
+        log.info("Draft deleted | draft_id=%s", draft_id)
+    await asyncio.get_event_loop().run_in_executor(None, _run)
+
+
 async def send_draft(draft_id: str) -> dict:
     """
     Send an existing Gmail draft.
